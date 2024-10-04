@@ -36,9 +36,11 @@ export class WavRecorder {
     this._devices = [];
     // State variables
     this.stream = null;
+    this.context = null; // Store context reference
     this.processor = null;
     this.source = null;
     this.node = null;
+    this.analyser = null; // Store analyser reference
     this.recording = false;
     // Event handling with AudioWorklet
     this._lastEventId = 0;
@@ -136,7 +138,7 @@ export class WavRecorder {
    */
   log() {
     if (this.debug) {
-      this.log(...arguments);
+      console.log(...arguments); // Fix the recursive call to console.log
     }
     return true;
   }
@@ -182,16 +184,26 @@ export class WavRecorder {
       data,
     };
     _processor.port.postMessage(message);
-    const t0 = new Date().valueOf();
-    while (!this.eventReceipts[message.id]) {
-      if (new Date().valueOf() - t0 > this.eventTimeout) {
-        throw new Error(`Timeout waiting for "${name}" event`);
-      }
-      await new Promise((res) => setTimeout(() => res(true), 1));
-    }
-    const payload = this.eventReceipts[message.id];
-    delete this.eventReceipts[message.id];
-    return payload;
+
+    // Wait for the receipt or timeout
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout waiting for "${name}" event`)), this.eventTimeout)
+    );
+
+    const eventPromise = new Promise((resolve) => {
+      const checkReceipt = () => {
+        if (this.eventReceipts[message.id]) {
+          const payload = this.eventReceipts[message.id];
+          delete this.eventReceipts[message.id];
+          resolve(payload);
+        } else {
+          setTimeout(checkReceipt, 1);
+        }
+      };
+      checkReceipt();
+    });
+
+    return Promise.race([eventPromise, timeoutPromise]);
   }
 
   /**
@@ -207,9 +219,6 @@ export class WavRecorder {
       );
       this._deviceChangeCallback = null;
     } else if (callback !== null) {
-      // Basically a debounce; we only want this called once when devices change
-      // And we only want the most recent callback() to be executed
-      // if a few are operating at the same time
       let lastId = 0;
       let lastDevices = [];
       const serializeDevices = (devices) =>
@@ -322,6 +331,7 @@ export class WavRecorder {
     }
 
     const context = new AudioContext({ sampleRate: this.sampleRate });
+    this.context = context; // Store context in the instance
     const source = context.createMediaStreamSource(this.stream);
     // Load and execute the module script.
     try {
@@ -364,7 +374,6 @@ export class WavRecorder {
     analyser.smoothingTimeConstant = 0.1;
     node.connect(analyser);
     if (this.outputToSpeakers) {
-      // eslint-disable-next-line no-console
       console.warn(
         'Warning: Output to speakers may affect sound quality,\n' +
           'especially due to system audio feedback preventative measures.\n' +
@@ -511,8 +520,10 @@ export class WavRecorder {
     this.log('Stopping ...');
     await this._event('stop');
     this.recording = false;
+
     const tracks = this.stream.getTracks();
     tracks.forEach((track) => track.stop());
+    this.stream = null;
 
     this.log('Exporting ...');
     const exportData = await this._event('export', {}, _processor);
@@ -521,10 +532,16 @@ export class WavRecorder {
     this.source.disconnect();
     this.node.disconnect();
     this.analyser.disconnect();
-    this.stream = null;
+
     this.processor = null;
     this.source = null;
     this.node = null;
+    this.analyser = null;
+
+    if (this.context && this.context.state !== 'closed') {
+      await this.context.close();
+      this.context = null;
+    }
 
     const packer = new WavPacker();
     const result = packer.pack(this.sampleRate, exportData.audio);
@@ -537,10 +554,13 @@ export class WavRecorder {
    * @returns {Promise<true>}
    */
   async quit() {
+    // Always remove the device change listener
     this.listenForDeviceChange(null);
+
     if (this.processor) {
       await this.end();
     }
+
     return true;
   }
 }
