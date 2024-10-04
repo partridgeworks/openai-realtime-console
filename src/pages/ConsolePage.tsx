@@ -28,23 +28,6 @@ import './ConsolePage.scss';
 import { isJsxOpeningLikeElement } from 'typescript';
 
 /**
- * Type for result from get_weather() function call
- */
-interface Coordinates {
-  lat: number;
-  lng: number;
-  location?: string;
-  temperature?: {
-    value: number;
-    units: string;
-  };
-  wind_speed?: {
-    value: number;
-    units: string;
-  };
-}
-
-/**
  * Type for all event logs
  */
 interface RealtimeEvent {
@@ -108,7 +91,7 @@ export function ConsolePage() {
    * - items are all conversation items (dialog)
    * - realtimeEvents are event logs, which can be expanded
    * - memoryKv is for set_memory() function
-   * - coords, marker are for get_weather() function
+   * - tips are for showRealtimeTip() function
    */
   const [items, setItems] = useState<ItemType[]>([]);
   const [realtimeEvents, setRealtimeEvents] = useState<RealtimeEvent[]>([]);
@@ -119,11 +102,7 @@ export function ConsolePage() {
   const [canPushToTalk, setCanPushToTalk] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [memoryKv, setMemoryKv] = useState<{ [key: string]: any }>({});
-  const [coords, setCoords] = useState<Coordinates | null>({
-    lat: 37.775593,
-    lng: -122.418137,
-  });
-  const [marker, setMarker] = useState<Coordinates | null>(null);
+  const [tips, setTips] = useState<string[]>([]);
 
   /**
    * Utility for formatting the timing of logs
@@ -184,7 +163,7 @@ export function ConsolePage() {
     client.sendUserMessageContent([
       {
         type: `input_text`,
-        text: `Hello!`,
+        text: `Hey there`,
         // text: `For testing purposes, I want you to list ten car brands. Number each item, e.g. "one (or whatever number you are one): the item name".`
       },
     ]);
@@ -202,11 +181,7 @@ export function ConsolePage() {
     setRealtimeEvents([]);
     setItems([]);
     setMemoryKv({});
-    setCoords({
-      lat: 37.775593,
-      lng: -122.418137,
-    });
-    setMarker(null);
+    setTips([]);
 
     const client = clientRef.current;
     client.disconnect();
@@ -370,7 +345,6 @@ export function ConsolePage() {
               );
             }
           }
-          
         }
         window.requestAnimationFrame(render);
       }
@@ -393,80 +367,62 @@ export function ConsolePage() {
 
     // Set instructions
     client.updateSession({ instructions: instructions });
+    // Set voice
+    client.updateSession({ voice: "echo" });
     // Set transcription, otherwise we don't get user transcriptions back
     client.updateSession({ input_audio_transcription: { model: 'whisper-1' } });
 
     // Add tools
+    // client.addTool(
+    //   {
+    //     name: 'set_memory',
+    //     description: 'Saves important data about the user into memory.',
+    //     parameters: {
+    //       type: 'object',
+    //       properties: {
+    //         key: {
+    //           type: 'string',
+    //           description:
+    //             'The key of the memory value. Always use lowercase and underscores, no other characters.',
+    //         },
+    //         value: {
+    //           type: 'string',
+    //           description: 'Value can be anything represented as a string',
+    //         },
+    //       },
+    //       required: ['key', 'value'],
+    //     },
+    //   },
+    //   async ({ key, value }: { [key: string]: any }) => {
+    //     setMemoryKv((memoryKv) => {
+    //       const newKv = { ...memoryKv };
+    //       newKv[key] = value;
+    //       return newKv;
+    //     });
+    //     return { ok: true };
+    //   }
+    // );
     client.addTool(
       {
-        name: 'set_memory',
-        description: 'Saves important data about the user into memory.',
+        name: 'showRealtimeTip',
+        description:
+          'Show the user a real time communications tip to help them how they are speaking',
         parameters: {
           type: 'object',
           properties: {
-            key: {
+            displayText: {
               type: 'string',
               description:
-                'The key of the memory value. Always use lowercase and underscores, no other characters.',
-            },
-            value: {
-              type: 'string',
-              description: 'Value can be anything represented as a string',
+                "The tip to display, for example 'Speak more clearly', 'Slow down!', 'Be more assertive', 'Remain calm', 'Provide examples'",
             },
           },
-          required: ['key', 'value'],
+          additionalProperties: false,
+          required: ['displayText'],
         },
       },
-      async ({ key, value }: { [key: string]: any }) => {
-        setMemoryKv((memoryKv) => {
-          const newKv = { ...memoryKv };
-          newKv[key] = value;
-          return newKv;
-        });
-        return { ok: true };
-      }
-    );
-    client.addTool(
-      {
-        name: 'get_weather',
-        description:
-          'Retrieves the weather for a given lat, lng coordinate pair. Specify a label for the location.',
-        parameters: {
-          type: 'object',
-          properties: {
-            lat: {
-              type: 'number',
-              description: 'Latitude',
-            },
-            lng: {
-              type: 'number',
-              description: 'Longitude',
-            },
-            location: {
-              type: 'string',
-              description: 'Name of the location',
-            },
-          },
-          required: ['lat', 'lng', 'location'],
-        },
-      },
-      async ({ lat, lng, location }: { [key: string]: any }) => {
-        setMarker({ lat, lng, location });
-        setCoords({ lat, lng, location });
-        const result = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,wind_speed_10m`
-        );
-        const json = await result.json();
-        const temperature = {
-          value: json.current.temperature_2m as number,
-          units: json.current_units.temperature_2m as string,
-        };
-        const wind_speed = {
-          value: json.current.wind_speed_10m as number,
-          units: json.current_units.wind_speed_10m as string,
-        };
-        setMarker({ lat, lng, location, temperature, wind_speed });
-        return json;
+      async ({ displayText }: { [key: string]: any }) => {
+        setTips((prevTips) => [...prevTips, displayText]);
+        return {};
       }
     );
 
@@ -537,8 +493,7 @@ export function ConsolePage() {
     <div data-component="ConsolePage">
       <div className="content-top">
         <div className="content-title">
-          <img src="/openai-logomark.svg" />
-          <span>realtime console</span>
+          <span>willis test</span>
         </div>
         <div className="content-api-key">
           {!LOCAL_RELAY_SERVER_URL && (
@@ -554,6 +509,72 @@ export function ConsolePage() {
       </div>
       <div className="content-main">
         <div className="content-logs">
+          <div className="content-block conversation">
+            <div className="content-block-title">conversation</div>
+            <div className="content-block-body" data-conversation-content>
+              {!items.length && `awaiting connection...`}
+              {items
+              .filter((conversationItem) => 
+                conversationItem.type !== 'function_call_output' &&
+                !conversationItem.formatted.tool
+              )
+              .map((conversationItem, i) => {
+                return (
+                  <div className="conversation-item" key={conversationItem.id}>
+                    <div className={`speaker ${conversationItem.role || ''}`}>
+                      <div>
+                        {(
+                          conversationItem.role || conversationItem.type
+                        ).replaceAll('_', ' ')}
+                      </div>
+                      <div
+                        className="close"
+                        onClick={() =>
+                          deleteConversationItem(conversationItem.id)
+                        }
+                      >
+                        <X />
+                      </div>
+                    </div>
+                    <div className={`speaker-content`}>
+                      {/* tool response */}
+                      {conversationItem.type === 'function_call_output' && (
+                        <div>{conversationItem.formatted.output}</div>
+                      )}
+                      {/* tool call */}
+                      {!!conversationItem.formatted.tool && (
+                        <div>
+                          {conversationItem.formatted.tool.name}(
+                          {conversationItem.formatted.tool.arguments})
+                        </div>
+                      )}
+                      {!conversationItem.formatted.tool &&
+                        conversationItem.role === 'user' && (
+                          <div>
+                            {conversationItem.formatted.transcript ||
+                              (conversationItem.formatted.audio?.length
+                                ? '(awaiting transcript)'
+                                : conversationItem.formatted.text ||
+                                  '(item sent)')}
+                          </div>
+                        )}
+                      {!conversationItem.formatted.tool &&
+                        conversationItem.role === 'assistant' && (
+                          <div>
+                            {conversationItem.formatted.transcript ||
+                              conversationItem.formatted.text ||
+                              '(truncated)'}
+                          </div>
+                        )}
+                      {conversationItem.formatted.file && (
+                        <audio src={conversationItem.formatted.file.url} />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           <div className="content-block events">
             <div className="visualization">
               <div className="visualization-entry client">
@@ -628,70 +649,7 @@ export function ConsolePage() {
               })}
             </div>
           </div>
-          <div className="content-block conversation">
-            <div className="content-block-title">conversation</div>
-            <div className="content-block-body" data-conversation-content>
-              {!items.length && `awaiting connection...`}
-              {items.map((conversationItem, i) => {
-                return (
-                  <div className="conversation-item" key={conversationItem.id}>
-                    <div className={`speaker ${conversationItem.role || ''}`}>
-                      <div>
-                        {(
-                          conversationItem.role || conversationItem.type
-                        ).replaceAll('_', ' ')}
-                      </div>
-                      <div
-                        className="close"
-                        onClick={() =>
-                          deleteConversationItem(conversationItem.id)
-                        }
-                      >
-                        <X />
-                      </div>
-                    </div>
-                    <div className={`speaker-content`}>
-                      {/* tool response */}
-                      {conversationItem.type === 'function_call_output' && (
-                        <div>{conversationItem.formatted.output}</div>
-                      )}
-                      {/* tool call */}
-                      {!!conversationItem.formatted.tool && (
-                        <div>
-                          {conversationItem.formatted.tool.name}(
-                          {conversationItem.formatted.tool.arguments})
-                        </div>
-                      )}
-                      {!conversationItem.formatted.tool &&
-                        conversationItem.role === 'user' && (
-                          <div>
-                            {conversationItem.formatted.transcript ||
-                              (conversationItem.formatted.audio?.length
-                                ? '(awaiting transcript)'
-                                : conversationItem.formatted.text ||
-                                  '(item sent)')}
-                          </div>
-                        )}
-                      {!conversationItem.formatted.tool &&
-                        conversationItem.role === 'assistant' && (
-                          <div>
-                            {conversationItem.formatted.transcript ||
-                              conversationItem.formatted.text ||
-                              '(truncated)'}
-                          </div>
-                        )}
-                      {conversationItem.formatted.file && (
-                        <audio
-                          src={conversationItem.formatted.file.url}
-                          controls
-                        />
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+
           <div className="content-actions">
             <Toggle
               defaultValue={false}
@@ -723,29 +681,17 @@ export function ConsolePage() {
         </div>
         <div className="content-right">
           <div className="content-block map">
-            <div className="content-block-title">get_weather()</div>
-            <div className="content-block-title bottom">
-              {marker?.location || 'not yet retrieved'}
-              {!!marker?.temperature && (
-                <>
-                  <br />
-                  🌡️ {marker.temperature.value} {marker.temperature.units}
-                </>
-              )}
-              {!!marker?.wind_speed && (
-                <>
-                  {' '}
-                  🍃 {marker.wind_speed.value} {marker.wind_speed.units}
-                </>
-              )}
-            </div>
             <div className="content-block-body full">
-              {coords && (
-                <Map
-                  center={[coords.lat, coords.lng]}
-                  location={coords.location}
-                />
-              )}
+              Real Time Tips:
+              <div className="content-tips">
+                {tips.map((tip, i) => (
+                  <>
+                    <div key={`tip-${i}`} className="content-tip">
+                      {tip}
+                    </div>
+                  </>
+                ))}
+              </div>
             </div>
           </div>
           <div className="content-block kv">
