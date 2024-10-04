@@ -456,7 +456,7 @@ export function ConsolePage() {
     );
 
     // handle realtime events from client + server for event logging
-    client.on('realtime.event', (realtimeEvent: RealtimeEvent) => {
+    const handleRealtimeEvent = (realtimeEvent: RealtimeEvent) => {
       setRealtimeEvents((realtimeEvents) => {
         const lastEvent = realtimeEvents[realtimeEvents.length - 1];
         if (lastEvent?.event.type === realtimeEvent.event.type) {
@@ -467,16 +467,22 @@ export function ConsolePage() {
           return realtimeEvents.concat(realtimeEvent);
         }
       });
-    });
-    client.on('error', (event: any) => console.error(event));
-    client.on('conversation.interrupted', async () => {
+    };
+  
+    const handleError = (event: any) => {
+      console.error(event);
+    };
+
+    const handleInterrupted = async () => {
       const trackSampleOffset = await wavStreamPlayer.interrupt();
       if (trackSampleOffset?.trackId) {
         const { trackId, offset } = trackSampleOffset;
         await client.cancelResponse(trackId, offset);
       }
-    });
-    client.on('conversation.updated', async ({ item, delta }: any) => {
+    };
+
+
+    const handleConversationUpdated = async ({ item, delta }: any) => {
       const items = client.conversation.getItems();
       if (delta?.audio) {
         wavStreamPlayer.add16BitPCM(delta.audio, item.id);
@@ -490,11 +496,22 @@ export function ConsolePage() {
         item.formatted.file = wavFile;
       }
       setItems(items);
-    });
+    };
+  
+    client.on('realtime.event', handleRealtimeEvent);
+    client.on('error', handleError);
+    client.on('conversation.interrupted', handleInterrupted);
+    client.on('conversation.updated', handleConversationUpdated);
+  
 
     setItems(client.conversation.getItems());
 
     return () => {
+      // Remove events
+      client.off('realtime.event', handleRealtimeEvent);
+      client.off('error', handleError);
+      client.off('conversation.interrupted', handleInterrupted);
+      client.off('conversation.updated', handleConversationUpdated);
       // cleanup; resets to defaults
       client.reset();
     };
