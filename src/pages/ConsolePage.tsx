@@ -103,6 +103,7 @@ export function ConsolePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [memoryKv, setMemoryKv] = useState<{ [key: string]: any }>({});
   const [tips, setTips] = useState<string[]>([]);
+  const [bedtime, setBedtime] = useState<string>("8.30PM");
 
   /**
    * Utility for formatting the timing of logs
@@ -368,7 +369,7 @@ export function ConsolePage() {
     // Set instructions
     client.updateSession({ instructions: instructions });
     // Set voice
-    client.updateSession({ voice: "echo" });
+    client.updateSession({ voice: "shimmer" });
     // Set transcription, otherwise we don't get user transcriptions back
     client.updateSession({ input_audio_transcription: { model: 'whisper-1' } });
 
@@ -425,6 +426,31 @@ export function ConsolePage() {
         return {};
       }
     );
+
+    client.addTool(
+      {
+        name: 'setProposedBedtime',
+        description:
+          'Sets the proposed new bedtime for the user',
+        parameters: {
+          type: 'object',
+          properties: {
+            content: {
+              type: 'string',
+              description:
+                "The new bedtime, formatted as 'HH:MM AM/PM', for example '10:00 PM'",
+            },
+          },
+          additionalProperties: false,
+          required: ['content'],
+        },
+      },
+      async ({ content }: { [key: string]: any }) => {
+        setBedtime(content);
+        return { bedtime: content};
+      }
+    );
+
 
     // handle realtime events from client + server for event logging
     const handleRealtimeEvent = (realtimeEvent: RealtimeEvent) => {
@@ -493,7 +519,7 @@ export function ConsolePage() {
     <div data-component="ConsolePage">
       <div className="content-top">
         <div className="content-title">
-          <span>willis test</span>
+          <span>The Head of Bedtimes</span>
         </div>
         <div className="content-api-key">
           {!LOCAL_RELAY_SERVER_URL && (
@@ -514,10 +540,10 @@ export function ConsolePage() {
             <div className="content-block-body" data-conversation-content>
               {!items.length && `awaiting connection...`}
               {items
-              .filter((conversationItem) => 
-                conversationItem.type !== 'function_call_output' &&
-                !conversationItem.formatted.tool
-              )
+              // .filter((conversationItem) => 
+              //   conversationItem.type !== 'function_call_output' &&
+              //   !conversationItem.formatted.tool
+              // )
               .map((conversationItem, i) => {
                 return (
                   <div className="conversation-item" key={conversationItem.id}>
@@ -650,7 +676,7 @@ export function ConsolePage() {
             </div>
           </div>
 
-          <div className="content-actions">
+          <div className="content-block actions">
             <Toggle
               defaultValue={false}
               labels={['manual', 'vad']}
@@ -682,6 +708,10 @@ export function ConsolePage() {
         <div className="content-right">
           <div className="content-block map">
             <div className="content-block-body full">
+              <div className="current-bedtime">
+                <div className="current-bedtime-title">Your Bedtime</div>
+                <div className="current-bedtime-time">{bedtime}</div>
+              </div>
               Real Time Tips:
               <div className="content-tips">
                 {tips.map((tip, i) => (
